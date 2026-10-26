@@ -1,0 +1,66 @@
+networks:
+  backend-net:
+    internal: true
+
+services:
+  nms-backend:
+    build: ./backend
+    expose: ["8000"]
+    networks: [backend-net]   # only Kong shares this network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1.4
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
+      KC_HOSTNAME_STRICT: "false"
+      MONITORING_APP_SECRET: ${MONITORING_APP_SECRET}
+      INVENTORY_SYNC_SECRET: ${INVENTORY_SYNC_SECRET}
+      PROVISIONING_SYSTEM_SECRET: ${PROVISIONING_SYSTEM_SECRET}
+    volumes:
+      - ./keycloak/nms-realm.json:/opt/keycloak/data/import/nms-realm.json:ro
+    ports: ["8080:8080"]
+
+  kong:
+    image: kong:3.9.1
+    depends_on: [nms-backend]
+    networks: [default, backend-net]
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000, 0.0.0.0:8443 ssl
+      KONG_SSL_CERT: /certs/server.crt
+      KONG_SSL_CERT_KEY: /certs/server.key
+      KONG_STATUS_LISTEN: 0.0.0.0:8100
+      # Trust the Docker host hop so X-Forwarded-For sets the client IP (demo of IP restriction).
+      KONG_TRUSTED_IPS: 172.16.0.0/12
+      KONG_REAL_IP_HEADER: X-Forwarded-For
+      KONG_REAL_IP_RECURSIVE: "on"
+      KONG_ADMIN_LISTEN: 127.0.0.1:8001
+      KONG_UNTRUSTED_LUA: sandbox
+      KONG_UNTRUSTED_LUA_SANDBOX_REQUIRES: cjson.safe
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+    volumes:
+      - ./kong/kong.yml:/kong/kong.yml:ro
+      - ./certs:/certs:ro
+    ports: ["8000:8000", "8443:8443"]
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    depends_on: [prometheus]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]

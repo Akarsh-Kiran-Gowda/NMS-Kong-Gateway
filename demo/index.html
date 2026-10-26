@@ -1,0 +1,38 @@
+<!doctype html><meta charset="utf-8"><title>NMS Gateway Demo</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:900px;margin:24px auto;padding:0 16px}
+h1{font-size:1.3rem} table{border-collapse:collapse;width:100%} td,th{border:1px solid #ccc;padding:6px;text-align:center}
+button{padding:6px 10px;cursor:pointer} #log div{font-family:monospace;padding:4px 8px;margin:2px 0;border-radius:4px}
+.s200{background:#d7f5dd}.s401{background:#fde2b8}.s403{background:#f9c9c9}.s413{background:#f9c9c9}.s429{background:#d9d2f5}.sother{background:#eee}
+</style>
+<h1>Secure NMS Gateway: click to test</h1>
+<p>Each button sends a request through Kong (HTTPS). The client's token is fetched for you. Green 200 = allowed, orange 401 = no/bad token, red 403 = wrong scope or IP, red 413 = body too large, purple 429 = rate limit.</p>
+<table id="t"><tr><th>Client \ Endpoint</th><th>GET /alarms</th><th>GET /performance</th><th>GET /devices</th><th>PUT /config</th></tr></table>
+<p><button onclick="burst()">Provisioning: send PUT /config x4 (limit is 3/min → 4th is 429)</button></p>
+<p><button onclick="go('monitoring-app','GET','/alarms','&big=1','[20 KB body]')">Oversized body (limit 10 KB → 413)</button>
+<button onclick="go('provisioning-system','PUT','/config','&xff=203.0.113.9','[from IP 203.0.113.9]')">Provisioning from a disallowed IP (→ 403)</button></p>
+<h3>Attack demos</h3>
+<p><button id="atk" onclick="attacks()">Run all attack demos (takes ~10 s)</button></p>
+<table id="at"></table>
+<h3>Results</h3><div id="log"></div>
+<script>
+const clients=["none","monitoring-app","inventory-sync","provisioning-system"];
+const eps=[["GET","/alarms"],["GET","/performance"],["GET","/devices"],["PUT","/config"]];
+const t=document.getElementById("t");
+for(const c of clients){const r=t.insertRow();r.insertCell().textContent=c==="none"?"(no token)":c;
+ for(const [m,p] of eps){const b=document.createElement("button");b.textContent="send";b.onclick=()=>go(c,m,p);r.insertCell().appendChild(b);}}
+async function go(c,m,p,extra="",label=""){
+ const r=await (await fetch(`/call?client=${c}&method=${m}&path=${p}${extra}`)).json();
+ const d=document.createElement("div");d.className="s"+([200,401,403,413,429].includes(r.status)?r.status:"other");
+ d.textContent=`${c==="none"?"(no token)":c}  ${m} ${p} ${label} → ${r.status}  ${r.body.slice(0,110)}`;
+ document.getElementById("log").prepend(d);}
+async function attacks(){
+ const b=document.getElementById("atk");b.disabled=true;b.textContent="running...";
+ const rows=await (await fetch("/attacks")).json();
+ const at=document.getElementById("at");at.innerHTML="<tr><th>Attack</th><th>Expected</th><th>Got</th><th>Result</th></tr>";
+ for(const r of rows){const tr=at.insertRow();tr.className=r.blocked?"s200":"s403";
+  tr.insertCell().textContent=r.name;tr.insertCell().textContent=JSON.stringify(r.expected);
+  tr.insertCell().textContent=JSON.stringify(r.got);tr.insertCell().textContent=r.blocked?"BLOCKED":"NOT BLOCKED";}
+ b.disabled=false;b.textContent="Run all attack demos (takes ~10 s)";}
+async function burst(){for(let i=0;i<4;i++)await go("provisioning-system","PUT","/config");}
+</script>

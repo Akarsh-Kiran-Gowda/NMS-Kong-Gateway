@@ -1,0 +1,6 @@
+.env
+kong/kong.yml
+.venv/
+__pycache__/
+.pytest_cache/
+certs/
